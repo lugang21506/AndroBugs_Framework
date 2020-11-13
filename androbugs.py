@@ -22,6 +22,48 @@ from ConfigParser import SafeConfigParser
 import platform
 import imp
 import sys
+import json
+
+from urllib import urlencode
+from urllib2 import URLError, HTTPError
+import urllib2
+
+httpHeaders = {
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "X-Requested-With": "XMLHttpRequest",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:45.0) Gecko/20100101 Firefox/45.0",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+}
+
+
+def RsltPush(taskId, data):
+	# post data to url
+
+	if taskId is None:
+		print "task ID is None"
+		return
+
+	#  url = 'http://10.120.99.202:8090/api/v1/LockTest/LockRsltPush=' + taskId
+	url = 'http://10.124.103.14/api/v1/LockTest/LockRsltPush?taskid=' + taskId
+
+	try:
+		post = json.JSONEncoder().encode(data).encode('utf-8')
+		# post = urlencode(data)
+	except TypeError as e:
+		print type(e), e
+
+	req = urllib2.Request(url, post, headers=httpHeaders)
+
+	result = None
+	try:
+		response = urllib2.urlopen(req)
+		result = response.read()
+	except ValueError or URLError as e:
+		print type(e), e
+	except HTTPError as e: #HTTP Error 500: Internal Server Error, 500	Internal Error--the server could not fulfill the request because of an unexpected condition
+		print type(e), e
+	return result
+
 
 """
 	*****************************************************************************
@@ -989,7 +1031,8 @@ def parseArgument():
 
 	#When you want to use "report_output_dir", remember to use "os.path.join(args.report_output_dir, [filename])"
 	parser.add_argument("-o", "--report_output_dir", help="Analysis Report Output Directory", type=str, required=False, default=DIRECTORY_REPORT_OUTPUT)
-	
+	parser.add_argument("-T", "--task_id", help="Push info to special task id", type=str, required=False)
+
 	args = parser.parse_args()
 	return args
 
@@ -1000,6 +1043,22 @@ def __analyze(writer, args) :
 			apk_file_not_exist
 			classes_dex_not_in_apk
 	"""
+
+	rdata = {
+		"Function": "appTestMain.py",
+		"ErrorCode": 1000,
+		"Result": "",
+		"ExecDesc": "",
+		"FailReason": "",
+		"Advice":"",
+		"StartTime": int(time.time()),
+		"EndTime": int(time.time()),
+		"State": 4,
+	}
+
+	process_percent = {"process_percent": 0}
+	rdata["ExecDesc"] = json.dumps(process_percent)
+	RsltPush(args.task_id, rdata)
 
 	#StopWatch: Counting execution time...
 	stopwatch_start = datetime.now()
@@ -1028,9 +1087,15 @@ def __analyze(writer, args) :
 	apk_Path = APK_FILE_NAME_STRING  # + ".apk"
 
 	if (".." in args.apk_file) :
+		process_percent = {"process_percent": 50}
+		rdata["ExecDesc"] = json.dumps(process_percent)
+		RsltPush(args.task_id, rdata)
 		raise ExpectedException("apk_file_name_slash_twodots_error", "APK file name should not contain slash(/) or two dots(..) (File: " + apk_Path + ").") 
 
 	if not os.path.isfile(apk_Path) :
+		process_percent = {"process_percent": 50}
+		rdata["ExecDesc"] = json.dumps(process_percent)
+		RsltPush(args.task_id, rdata)
 		raise ExpectedException("apk_file_not_exist", "APK file not exist (File: " + apk_Path + ").")
 
 	if args.store_analysis_result_in_db :
@@ -1059,7 +1124,7 @@ def __analyze(writer, args) :
 
 	writer.writeInf_ForceNoPrint("time_starting_analyze", datetime.utcnow())
 
-	a = apk.APK(apk_Path) 
+	a = apk.APK(apk_Path)
 
 	writer.update_analyze_status("starting_apk")
 
@@ -1087,6 +1152,9 @@ def __analyze(writer, args) :
 			writer.writeInf("package_version_code", a.get_androidversion_code(), "Package Version Code")
 
 	if len(a.get_dex()) == 0:
+		process_percent = {"process_percent": 50}  # start analysis
+		rdata["ExecDesc"] = json.dumps(process_percent)
+		RsltPush(args.task_id, rdata)
 		raise ExpectedException("classes_dex_not_in_apk", "Broken APK file. \"classes.dex\" file not found (File: " + apk_Path + ").")
 
 	try:
@@ -1122,11 +1190,19 @@ def __analyze(writer, args) :
 
 	writer.update_analyze_status("starting_dvm")
 
+	process_percent = {"process_percent": 10}
+	rdata["ExecDesc"] = json.dumps(process_percent)
+	RsltPush(args.task_id, rdata)
+
 	d = dvm.DalvikVMFormat(a.get_dex())
 
 	writer.update_analyze_status("starting_analyze")
 
 	vmx = analysis.VMAnalysis(d)
+
+	process_percent = {"process_percent": 20} # start analysis
+	rdata["ExecDesc"] = json.dumps(process_percent)
+	RsltPush(args.task_id, rdata)
 
 	writer.update_analyze_status("starting_androbugs")
 
@@ -1438,6 +1514,10 @@ def __analyze(writer, args) :
 
 	#----------------------------------------------------------------------------------
 
+	process_percent = {"process_percent": 30} # start analysis
+	rdata["ExecDesc"] = json.dumps(process_percent)
+	RsltPush(args.task_id, rdata)
+
 	#Critical use-permission check:
 	user_permission_critical_manufacturer = ["android.permission.INSTALL_PACKAGES", "android.permission.WRITE_SECURE_SETTINGS"]
 	user_permission_critical = ["android.permission.MOUNT_FORMAT_FILESYSTEMS", "android.permission.MOUNT_UNMOUNT_FILESYSTEMS", "android.permission.RESTART_PACKAGES"]
@@ -1742,6 +1822,10 @@ Please modify the below code:"""
 			writer.show_Path(d, keystore)
 	else:
 		writer.startWriter("KEYSTORE_TYPE_CHECK", LEVEL_INFO, "KeyStore Type Checking", "KeyStore 'BKS' type check OK", ["KeyStore"])
+
+	process_percent = {"process_percent": 40}
+	rdata["ExecDesc"] = json.dumps(process_percent)
+	RsltPush(args.task_id, rdata)
 
 	# ------------------------------------------------------------------------
 	#Android PackageInfo signatures checking:
@@ -3434,6 +3518,10 @@ Please modify or remove these vulnerable code:
 
 	#----------------------------------------------------------------
 	#End of Checking
+
+	process_percent = {"process_percent": 50}
+	rdata["ExecDesc"] = json.dumps(process_percent)
+	RsltPush(args.task_id, rdata)
 
 	#StopWatch
 	now = datetime.now()
